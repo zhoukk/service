@@ -1,0 +1,20 @@
+--work thread
+thread = 4
+
+--lua path
+lua_path = "./?.lua;./lualib/?.lua"
+
+--lua clib path
+lua_cpath = "./?.so;./luaclib/?.so"
+
+--service path
+service_path = "./?.lua;./service/?.lua;./example/?.lua;./test/?.lua"
+
+--log file name
+log = nil
+
+--service loader script
+loader = "lualib/loader.lua"
+
+--main script service
+main = "main"
