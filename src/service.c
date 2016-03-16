@@ -376,7 +376,6 @@ static int service_socket_poll(void) {
 	m.proto = SERVICE_PROTO_SOCKET;
 	memcpy(m.data, &sm, size);
 	uint32_t handle = (uint32_t)(uintptr_t)sm.ud;
-  printf("type:%d\n", sm.type);
 	if (-1 == service_send(handle, &m))
 		service_alloc(m.data, 0);
   return 1;

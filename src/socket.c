@@ -997,7 +997,11 @@ socket_try_open(struct socket *sock, struct socket_message *msg) {
 	code = getsockopt(sock->fd, SOL_SOCKET, SO_ERROR, (char *)&error, &len);
 	if (code < 0 || error) {
 		socket_force_close(sock, msg);
-		msg->data = strerror(errno);
+    if (code > 0) {
+      msg->data = strerror(error);
+    } else {
+      msg->data = strerror(errno);
+    }
 		return SOCKET_ERR;
 	} else {
 		union sockaddr_all u;
@@ -1049,8 +1053,8 @@ socket_try_accept(struct socket *sock, struct socket_message *msg) {
 		return -1;
 	}
 	newsock->type = SOCKET_TYPE_PACCEPT;
-	msg->id = newsock->id;
-	msg->size = sock->id;
+	msg->id = sock->id;
+	msg->size = newsock->id;
 	sin_addr = (u.s.sa_family == AF_INET) ? (void*)&u.v4.sin_addr : (void *)&u.v6.sin6_addr;
 	sin_port = ntohs((u.s.sa_family == AF_INET) ? u.v4.sin_port : u.v6.sin6_port);
 	char tmp[INET6_ADDRSTRLEN];
@@ -1266,7 +1270,7 @@ socket_poll(struct socket_message *sm) {
 				S.ev_n = 0;
 				if (errno == EINTR) continue;
 				fprintf(stderr, "socketlib event wait errno:%d.\n", errno);
-				return SOCKET_EXIT;
+				return 0;
 			}
 		}
 		ev = &S.ev[S.ev_idx++];
@@ -1278,7 +1282,6 @@ socket_poll(struct socket_message *sm) {
 		sm->ud = sock->ud;
 		sm->data = 0;
 		sm->size = 0;
-    printf("id:%d, type:%d\n", sm->id, sock->type);
 		switch (sock->type) {
 		case SOCKET_TYPE_OPENING:
 			r = socket_try_open(sock, sm);
