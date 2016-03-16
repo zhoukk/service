@@ -9,7 +9,7 @@
 #define QUEUE_CAP 16
 #define QUEUE_OVERLOAD 1024
 
-struct message_queue {
+struct queue {
 	uint32_t handle;
 	int cap;
 	int head;
@@ -19,156 +19,174 @@ struct message_queue {
 	int overload;
 	int overload_threshold;
 	struct spinlock lock;
-	struct worker_queue *wq;
-	struct message_queue *next;
+	struct queue *next;
 	struct message *slot;
 };
 
-void worker_queue_init(struct worker_queue *wq) {
-	wq->head = wq->tail = 0;
-	spinlock_init(&wq->lock);
+struct worker_queue {
+	struct queue *head;
+	struct queue *tail;
+	struct spinlock lock;
+};
+
+static struct worker_queue WQ;
+
+void
+worker_queue_init(void) {
+	WQ.head = WQ.tail = 0;
+	spinlock_init(&WQ.lock);
 }
 
-void worker_queue_unit(struct worker_queue *wq) {
-	wq->head = wq->tail = 0;
-	spinlock_unit(&wq->lock);
+void
+worker_queue_unit(void) {
+	WQ.head = WQ.tail = 0;
+	spinlock_unit(&WQ.lock);
 }
 
-void worker_queue_push(struct worker_queue *wq, struct message_queue *mq) {
-	spinlock_lock(&wq->lock);
-	if (wq->tail) {
-		wq->tail->next = mq;
-		wq->tail = mq;
+void
+worker_queue_push(struct queue *q) {
+	spinlock_lock(&WQ.lock);
+	if (WQ.tail) {
+		WQ.tail->next = q;
+		WQ.tail = q;
 	} else {
-		wq->head = wq->tail = mq;
+		WQ.head = WQ.tail = q;
 	}
-	spinlock_unlock(&wq->lock);
+	spinlock_unlock(&WQ.lock);
 }
 
-struct message_queue *worker_queue_pop(struct worker_queue *wq) {
-	struct message_queue *mq;
-	spinlock_lock(&wq->lock);
-	mq = wq->head;
-	if (mq) {
-		wq->head = mq->next;
-		if (!wq->head) wq->tail = 0;
-		mq->next = 0;
+struct queue *
+worker_queue_pop(void) {
+	struct queue *q;
+	spinlock_lock(&WQ.lock);
+	q = WQ.head;
+	if (q) {
+		WQ.head = q->next;
+		if (!WQ.head) WQ.tail = 0;
+		q->next = 0;
 	}
-	spinlock_unlock(&wq->lock);
-	return mq;
+	spinlock_unlock(&WQ.lock);
+	return q;
 }
 
-struct message_queue *message_queue_create(uint32_t handle) {
-	struct message_queue *mq = (struct message_queue *)service_alloc(0, sizeof *mq);
-	mq->handle = handle;
-	mq->cap = QUEUE_CAP;
-	mq->head = mq->tail = 0;
-	mq->next = 0;
-	mq->overload = 0;
-	mq->overload_threshold = QUEUE_OVERLOAD;
-	mq->release = 0;
-	mq->global = 1;
-	mq->wq = 0;
-	mq->slot = (struct message *)service_alloc(0, mq->cap * sizeof(struct message));
-	spinlock_init(&mq->lock);
-	return mq;
+struct queue *
+queue_create(uint32_t handle) {
+	struct queue *q = (struct queue *)service_alloc(0, sizeof *q);
+	q->handle = handle;
+	q->cap = QUEUE_CAP;
+	q->head = q->tail = 0;
+	q->next = 0;
+	q->overload = 0;
+	q->overload_threshold = QUEUE_OVERLOAD;
+	q->release = 0;
+	q->global = 1;
+	q->slot = (struct message *)service_alloc(0, q->cap * sizeof(struct message));
+	spinlock_init(&q->lock);
+	return q;
 }
 
-void message_queue_release(struct message_queue *mq, void(*dtor)(struct message *, void *), void *ud) {
-	spinlock_lock(&mq->lock);
-	if (mq->release == 0) {
-		worker_queue_push(mq->wq, mq);
-		spinlock_unlock(&mq->lock);
+void
+queue_release(struct queue *q, void(*dtor)(struct message *, void *), void *ud) {
+	spinlock_lock(&q->lock);
+	if (q->release == 0) {
+		worker_queue_push(q);
+		spinlock_unlock(&q->lock);
 		return;
 	}
-	spinlock_unlock(&mq->lock);
+	spinlock_unlock(&q->lock);
 	if (dtor) {
 		struct message m;
-		while (message_queue_pop(mq, &m)) {
+		while (queue_pop(q, &m)) {
 			dtor(&m, ud);
 		}
 	}
-	spinlock_unit(&mq->lock);
-	service_alloc(mq, 0);
+	spinlock_unit(&q->lock);
+	service_alloc(q, 0);
 }
 
-void queue_try_release(struct message_queue *mq) {
-	spinlock_lock(&mq->lock);
-	mq->release = 1;
-	if (mq->global == 0)
-		worker_queue_push(mq->wq, mq);
-	spinlock_unlock(&mq->lock);
+void
+queue_try_release(struct queue *q) {
+	spinlock_lock(&q->lock);
+	q->release = 1;
+	if (q->global == 0)
+		worker_queue_push(q);
+	spinlock_unlock(&q->lock);
 }
 
-void message_queue_push(struct message_queue *mq, struct message *m) {
-	spinlock_lock(&mq->lock);
-	mq->slot[mq->tail++] = *m;
-	if (mq->tail >= mq->cap) mq->tail = 0;
-	if (mq->tail == mq->head) {
+void
+queue_push(struct queue *q, struct message *m) {
+	spinlock_lock(&q->lock);
+	q->slot[q->tail++] = *m;
+	if (q->tail >= q->cap) q->tail = 0;
+	if (q->tail == q->head) {
 		struct message *slot = (struct message *)service_alloc(0, sizeof(struct message) * q->cap * 2);
 		assert(slot);
 		int i;
-		int head = mq->head;
-		for (i = 0; i < mq->cap; i++) {
-			slot[i] = mq->slot[head&(mq->cap-1)];
+		int head = q->head;
+		for (i = 0; i < q->cap; i++) {
+			slot[i] = q->slot[head&(q->cap-1)];
 			++head;
 		}
-		service_alloc(mq->slot, 0);
-		mq->slot = slot;
-		mq->head = 0;
-		mq->tail = mq->cap;
-		mq->cap *= 2;
+		service_alloc(q->slot, 0);
+		q->slot = slot;
+		q->head = 0;
+		q->tail = q->cap;
+		q->cap *= 2;
 	}
-	if (mq->global == 0) {
-		mq->global = 1;
-		worker_queue_push(mq->wq, mq);
+	if (q->global == 0) {
+		q->global = 1;
+		worker_queue_push(q);
 	}
-	spinlock_unlock(&mq->lock);
+	spinlock_unlock(&q->lock);
 }
 
-struct message *message_queue_pop(struct message_queue *mq, struct message *m) {
-	spinlock_lock(&mq->lock);
-	if (mq->head != mq->tail) {
-		*m = mq->slot[mq->head++];
-		int head = mq->head;
-		int tail = mq->tail;
-		int cap = mq->cap;
-		if (head >= cap) mq->head = head = 0;
+struct message *
+queue_pop(struct queue *q, struct message *m) {
+	spinlock_lock(&q->lock);
+	if (q->head != q->tail) {
+		*m = q->slot[q->head++];
+		int head = q->head;
+		int tail = q->tail;
+		int cap = q->cap;
+		if (head >= cap) q->head = head = 0;
 		int len = tail - head;
 		if (len < 0) len += cap;
-		while (len > mq->overload_threshold) {
-			mq->overload = len;
-			mq->overload_threshold *= 2;
+		while (len > q->overload_threshold) {
+			q->overload = len;
+			q->overload_threshold *= 2;
 		}
 	} else {
 		m = 0;
-		mq->global = 0;
-		mq->overload_threshold = QUEUE_OVERLOAD;
+		q->global = 0;
+		q->overload_threshold = QUEUE_OVERLOAD;
 	}
-	spinlock_unlock(&mq->lock);
+	spinlock_unlock(&q->lock);
 	return m;
 }
 
-int message_queue_overload(struct message_queue *mq) {
-	if (mq->overload) {
-		int overload = mq->overload;
-		mq->overload = 0;
+int
+queue_overload(struct queue *q) {
+	if (q->overload) {
+		int overload = q->overload;
+		q->overload = 0;
 		return overload;
 	}
 	return 0;
 }
 
-int message_queue_length(struct message_queue *mq) {
+int
+queue_length(struct queue *q) {
 	int head, tail, cap;
-	spinlock_lock(&mq->lock);
-	head = mq->head;
-	tail = mq->tail;
-	cap = mq->cap;
-	spinlock_unlock(&mq->lock);
+	spinlock_lock(&q->lock);
+	head = q->head;
+	tail = q->tail;
+	cap = q->cap;
+	spinlock_unlock(&q->lock);
 	if (head <= tail) return tail - head;
 	return tail + cap - head;
 }
 
-uint32_t message_queue_handle(struct message_queue *mq) {
-	return mq->handle;
+uint32_t
+queue_handle(struct queue *q) {
+	return q->handle;
 }

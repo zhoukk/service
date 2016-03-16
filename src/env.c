@@ -10,7 +10,8 @@ struct env {
 	lua_State *L;
 };
 
-struct env *env_create(const char *file) {
+struct env *
+env_create(const char *file) {
 	struct env *env = (struct env *)service_alloc(0, sizeof *env);
 	spinlock_init(&env->lock);
 	env->L = luaL_newstate();
@@ -24,13 +25,15 @@ struct env *env_create(const char *file) {
 	return env;
 }
 
-void env_release(struct env *env) {
+void
+env_release(struct env *env) {
 	lua_close(env->L);
 	spinlock_unit(&env->lock);
 	service_alloc(env, 0);
 }
 
-void env_setint(struct env * env, const char *key, int val) {
+void
+env_setint(struct env * env, const char *key, int val) {
 	spinlock_lock(&env->lock);
 	lua_getglobal(env->L, key);
 	lua_pop(env->L, 1);
@@ -39,7 +42,8 @@ void env_setint(struct env * env, const char *key, int val) {
 	spinlock_unlock(&env->lock);
 }
 
-int env_getint(struct env * env, const char *key) {
+int
+env_getint(struct env * env, const char *key) {
 	int val;
 	spinlock_lock(&env->lock);
 	lua_getglobal(env->L, key);
@@ -49,7 +53,8 @@ int env_getint(struct env * env, const char *key) {
 	return val;
 }
 
-void env_setstr(struct env * env, const char *key, const char *val) {
+void
+env_setstr(struct env * env, const char *key, const char *val) {
 	spinlock_lock(&env->lock);
 	lua_getglobal(env->L, key);
 	lua_pop(env->L, 1);
@@ -58,7 +63,8 @@ void env_setstr(struct env * env, const char *key, const char *val) {
 	spinlock_unlock(&env->lock);
 }
 
-const char *env_getstr(struct env * env, const char *key) {
+const char *
+env_getstr(struct env * env, const char *key) {
 	const char *val;
 	spinlock_lock(&env->lock);
 	lua_getglobal(env->L, key);

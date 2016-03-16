@@ -20,7 +20,6 @@ struct service {
 
 struct service_global {
 	int total;
-	struct worker_queue *wq;
 	struct index *index;
 	struct env *env;
 	struct env *names;
@@ -129,7 +128,7 @@ static inline struct service *service_grab(uint32_t handle) {
 	return (struct service *)index_grab(g.index, handle);
 }
 
-static void message_queue_message_dtor(struct message *m, void *ud) {
+static void queue_message_dtor(struct message *m, void *ud) {
 	service_alloc(m->data, 0);
 	struct message em;
 	em.source = (uint32_t)(uintptr_t)ud;
@@ -145,7 +144,7 @@ uint32_t service_create(struct module *module, const char *param) {
 	s->session = 0;
 	s->logfile = 0;
 	s->handle = service_regist(s);
-	s->queue = message_queue_create(s->handle);
+	s->queue = queue_create(s->handle);
 	service_total_inc();
 
 	s = service_grab(s->handle);
@@ -154,8 +153,8 @@ uint32_t service_create(struct module *module, const char *param) {
 		service_log(s->handle, "FAILED %s\n", param);
 		uint32_t handle = s->handle;
 		while (!(s = (struct service *)index_release(g.index, handle))) {}
-		message_queue_try_release(s->queue);
-		message_queue_release(s->queue, message_queue_message_dtor, (void *)(uintptr_t)handle);
+		queue_try_release(s->queue);
+		queue_release(s->queue, queue_message_dtor, (void *)(uintptr_t)handle);
 		service_alloc(s, 0);
 		service_total_dec();
 		return 0;
@@ -171,7 +170,7 @@ int service_release(uint32_t handle) {
 	struct service *s = (struct service *)index_release(g.index, handle);
 	if (!s) return 0;
 	s->module.release(s->handle, s->ud);
-	message_queue_try_release(s->queue);
+	queue_try_release(s->queue);
 	if (s->logfile)
 		fclose(s->logfile);
 	service_alloc(s, 0);
@@ -183,7 +182,7 @@ int service_release(uint32_t handle) {
 int service_send(uint32_t handle, struct message *m) {
 	struct service *s = service_grab(handle);
 	if (!s) return -1;
-	message_queue_push(s->queue, m);
+	queue_push(s->queue, m);
 	service_release(handle);
 	return m->session;
 }
@@ -199,7 +198,7 @@ int service_session(uint32_t handle) {
 int service_mqlen(uint32_t handle) {
 	struct service *s = service_grab(handle);
 	if (!s) return 0;
-	int mqlen = message_queue_length(s->queue);
+	int mqlen = queue_length(s->queue);
 	service_release(handle);
 	return mqlen;
 }
@@ -209,24 +208,24 @@ void log_output(FILE *f, struct message *m);
 struct monitor;
 void monitor_trigger(struct monitor *monitor, uint32_t source, uint32_t handle);
 
-struct queue *service_dispatch(struct monitor *monitor, struct worker_queue *wq, struct queue *q) {
+struct queue *service_dispatch(struct monitor *monitor, struct queue *q) {
 	if (!q) {
-		q = worker_queue_pop(wq);
+		q = worker_queue_pop();
 		if (!q) return 0;
 	}
 
-	uint32_t handle = message_queue_handle(q);
+	uint32_t handle = queue_handle(q);
 	struct service *s = service_grab(handle);
 	if (!s) {
-		message_queue_release(q, message_queue_message_dtor, (void *)(uintptr_t)handle);
-		return worker_queue_pop(wq);
+		queue_release(q, queue_message_dtor, (void *)(uintptr_t)handle);
+		return worker_queue_pop();
 	}
 	struct message m;
-	if (!message_queue_pop(q, &m)) {
+	if (!queue_pop(q, &m)) {
 		service_release(handle);
-		return worker_queue_pop(wq);
+		return worker_queue_pop();
 	}
-	int overload = message_queue_overload(q);
+	int overload = queue_overload(q);
 	if (overload)
 		service_log(handle, "service may overload, message queue length = %d\n", overload);
 	monitor_trigger(monitor, m.source, handle);
@@ -235,9 +234,9 @@ struct queue *service_dispatch(struct monitor *monitor, struct worker_queue *wq,
 	s->module.dispatch(s->handle, s->ud, &m);
 	service_alloc(m.data, 0);
 	monitor_trigger(monitor, 0, 0);
-	struct queue *next = worker_queue_pop(wq);
+	struct queue *next = worker_queue_pop();
 	if (next) {
-		worker_queue_push(wq, q);
+		worker_queue_push(q);
 		q = next;
 	}
 	service_release(handle);
@@ -364,14 +363,11 @@ static void service_timer_dispatch(void *p) {
 	service_send(evt->handle, &m);
 }
 
-static void service_socket_poll(void) {
+static int service_socket_poll(void) {
 	struct socket_message sm;
 	if (!socket_poll(&sm))
-		return;
+		return 0;
 	struct message m;
-	if (sm.type == SOCKET_EXIT) {
-		return;
-	}
 	int size = sizeof sm;
 	m.source = 0;
 	m.session = 0;
@@ -380,8 +376,10 @@ static void service_socket_poll(void) {
 	m.proto = SERVICE_PROTO_SOCKET;
 	memcpy(m.data, &sm, size);
 	uint32_t handle = (uint32_t)(uintptr_t)sm.ud;
+  printf("type:%d\n", sm.type);
 	if (-1 == service_send(handle, &m))
 		service_alloc(m.data, 0);
+  return 1;
 }
 
 extern struct module lua_mod;
@@ -448,11 +446,9 @@ void monitor_trigger(struct monitor *monitor, uint32_t source, uint32_t handle) 
 static void *worker(void *p) {
 	struct worker_param *wp = (struct worker_param *)p;
 	struct watcher *watcher = wp->watcher;
-	int thread = wp->thread;
-	struct worker_queue *wq = &g.wq[thread];
 	struct queue *q = 0;
 	while (!watcher->quit) {
-		q = service_dispatch(&wp->monitor, wq, q);
+		q = service_dispatch(&wp->monitor, q);
 		if (!q) {
 			pthread_mutex_lock(&watcher->mutex);
 			++watcher->sleep;
@@ -510,34 +506,6 @@ static void *monitor(void *p) {
 }
 
 
-static void start(int thread) {
-	struct worker_param wp[thread];
-	struct watcher watcher;
-	watcher_init(&watcher, thread, wp);
-
-	struct worker_queue wq[thread];
-	g.wq = wq;
-
-	pthread_t pid[thread+3];
-	int i;
-	for (i=0; i<thread; i++) {
-		wp[i].watcher = &watcher;
-		wp[i].thread = i;
-		worker_queue_init(&wq[i]);
-		monitor_init(&wp[i].monitor);
-		pthread_create(&pid[i], 0, worker, &wp[i]);
-	}
-
-	pthread_create(&pid[i++], 0, timer, &watcher);
-	pthread_create(&pid[i++], 0, socket, &watcher);
-	pthread_create(&pid[i++], 0, monitor, &watcher);
-
-	for (i=0; i<thread+3; i++)
-		pthread_join(pid[i], 0);
-	watcher_unit(&watcher);
-}
-
-
 static void *log_create(uint32_t handle, const char *param) {
 	FILE *f;
 	if (param)
@@ -561,8 +529,33 @@ static int log_dispatch(uint32_t handle, void *ud, const struct message *m) {
 	return 0;
 }
 
+static void start(int thread) {
+	struct worker_param wp[thread];
+	struct watcher watcher;
+	watcher_init(&watcher, thread, wp);
+
+
+	pthread_t pid[thread+3];
+	int i;
+	for (i=0; i<thread; i++) {
+		wp[i].watcher = &watcher;
+		wp[i].thread = i;
+		monitor_init(&wp[i].monitor);
+		pthread_create(&pid[i], 0, worker, &wp[i]);
+	}
+
+	pthread_create(&pid[i++], 0, timer, &watcher);
+	pthread_create(&pid[i++], 0, socket, &watcher);
+	pthread_create(&pid[i++], 0, monitor, &watcher);
+
+	for (i=0; i<thread+3; i++)
+		pthread_join(pid[i], 0);
+	watcher_unit(&watcher);
+}
+
 void service_start(const char *config) {
 	initialize(config);
+	worker_queue_init();
 	timer_init(service_timer_dispatch, service_alloc);
 	socket_init(service_alloc);
 

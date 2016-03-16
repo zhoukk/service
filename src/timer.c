@@ -40,7 +40,8 @@ struct timer {
 
 static struct timer T;
 
-static uint64_t gettime(void) {
+static uint64_t
+gettime(void) {
 	uint64_t t;
 #if !defined(__APPLE__)
 #ifdef CLOCK_MONOTONIC_RAW
@@ -61,7 +62,8 @@ static uint64_t gettime(void) {
 	return t;
 }
 
-static void	systime(uint32_t *sec, uint32_t *cs) {
+static void
+systime(uint32_t *sec, uint32_t *cs) {
 #if !defined(__APPLE__)
 	struct timespec ti;
 	clock_gettime(CLOCK_REALTIME, &ti);
@@ -75,20 +77,23 @@ static void	systime(uint32_t *sec, uint32_t *cs) {
 #endif
 }
 
-static inline struct timer_node *link_clear(struct timer_list *list) {
+static inline struct timer_node *
+link_clear(struct timer_list *list) {
 	struct timer_node *ret = list->head.next;
 	list->head.next = 0;
 	list->tail = &(list->head);
 	return ret;
 }
 
-static inline void link(struct timer_list *list, struct timer_node *node) {
+static inline void
+link(struct timer_list *list, struct timer_node *node) {
 	list->tail->next = node;
 	list->tail = node;
 	node->next = 0;
 }
 
-static void _timer_add_node(struct timer_node *node) {
+static void
+_timer_add_node(struct timer_node *node) {
 	uint32_t expire = node->expire;
 	uint32_t time = T.time;
 	if ((expire|TIMER_NEAR_MASK) == (time|TIMER_NEAR_MASK)) {
@@ -106,7 +111,8 @@ static void _timer_add_node(struct timer_node *node) {
 	}
 }
 
-static void _timer_move_list(int level, int idx) {
+static void
+_timer_move_list(int level, int idx) {
 	struct timer_node *node = link_clear(&T.t[level][idx]);
 	while (node) {
 		struct timer_node *tmp = node->next;
@@ -115,7 +121,8 @@ static void _timer_move_list(int level, int idx) {
 	}
 }
 
-static void _timer_dispatch(struct timer_node *node) {
+static void
+_timer_dispatch(struct timer_node *node) {
 	do {
 		struct timer_node *tmp;
 		void *ud = node+1;
@@ -126,7 +133,8 @@ static void _timer_dispatch(struct timer_node *node) {
 	} while (node);
 }
 
-static void _timer_execute(void) {
+static void
+_timer_execute(void) {
 	int idx = T.time & TIMER_NEAR_MASK;
 	while (T.near[idx].head.next) {
 		struct timer_node *cur = link_clear(&T.near[idx]);
@@ -136,7 +144,8 @@ static void _timer_execute(void) {
 	}
 }
 
-static void _timer_shift(void) {
+static void
+_timer_shift(void) {
 	uint32_t ct = ++T.time;
 	if (ct == 0) {
 		_timer_move_list(3, 0);
@@ -156,7 +165,8 @@ static void _timer_shift(void) {
 	}
 }
 
-static void _timer_update(void) {
+static void
+_timer_update(void) {
 	spinlock_lock(&T.lock);
 	_timer_execute();
 	_timer_shift();
@@ -164,7 +174,8 @@ static void _timer_update(void) {
 	spinlock_unlock(&T.lock);
 }
 
-void timer_init(timer_dispatch dispatch, timer_alloc alloc) {
+void
+timer_init(timer_dispatch dispatch, timer_alloc alloc) {
 	int i, j;
 	for (i=0; i<TIMER_NEAR; i++) {
 		link_clear(&T.near[i]);
@@ -181,7 +192,8 @@ void timer_init(timer_dispatch dispatch, timer_alloc alloc) {
 	spinlock_init(&T.lock);
 }
 
-void timer_unit(void) {
+void
+timer_unit(void) {
 	int i, j;
 	for (i=0; i<TIMER_NEAR; i++) {
 		struct timer_node *node = T.near[i].head.next;
@@ -206,7 +218,8 @@ void timer_unit(void) {
 	spinlock_unit(&T.lock);
 }
 
-void timer_timeout(int time, void *ud, int size) {
+void
+timer_timeout(int time, void *ud, int size) {
 	struct timer_node *node = (struct timer_node *)T.alloc(0, sizeof(*node)+size);
 	memcpy(node+1, ud, size);
 	spinlock_lock(&T.lock);
@@ -216,7 +229,8 @@ void timer_timeout(int time, void *ud, int size) {
 	spinlock_unlock(&T.lock);
 }
 
-void timer_update(void) {
+void
+timer_update(void) {
 	uint64_t cp = gettime();
 	if (cp < T.cur_pt) {
 		T.cur_pt = cp;
@@ -235,10 +249,12 @@ void timer_update(void) {
 	}
 }
 
-uint32_t timer_starttime(void) {
+uint32_t
+timer_starttime(void) {
 	return T.start;
 }
 
-uint32_t timer_now(void) {
+uint32_t
+timer_now(void) {
 	return T.current;
 }

@@ -1,11 +1,11 @@
 
 BUILD ?= .
 
-CFLAGS := -g -Wall
+CFLAGS := -g -Wall -I../lua-5.3.2/src
 LIBS := -ldl -lrt -lpthread -lm -llua
-LDFLAGS :=
+LDFLAGS := -L../lua-5.3.2/src
 SHARED := -fPIC --shared
-EXPORT := -Wl,-E -Wl,-rpath,/usr/local/lib
+EXPORT := -Wl,-E -Wl,-rpath,../lua-5.3.2/src/
 
 SRC = epoll.c index.c hash.c env.c lalloc.c lserial.c lservice.c queue.c service.c socket.c timer.c main.c
 
@@ -27,7 +27,8 @@ sproto.so : luaclib/sproto/lsproto.c luaclib/sproto/sproto.c
 		$(CC) $(CFLAGS) $(SHARED) $^ -o $@ -Iluaclib/sproto
 
 lpeg.so :
-		cd 3rd/lpeg-0.12.2 && $(MAKE) CC=$(CC) && cp ./lpeg.so ../../		
+		cd 3rd/lpeg-0.12.2 && $(MAKE) CC=$(CC) && cp ./lpeg.so ../../
 
 clean:
-	rm -f $(BUILD)/service socket.so
+	rm -f $(BUILD)/service socket.so sproto.so lpeg.so crypt.so netpack.so
+	cd 3rd/lpeg-0.12.2 && make clean

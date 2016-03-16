@@ -1278,6 +1278,7 @@ socket_poll(struct socket_message *sm) {
 		sm->ud = sock->ud;
 		sm->data = 0;
 		sm->size = 0;
+    printf("id:%d, type:%d\n", sm->id, sock->type);
 		switch (sock->type) {
 		case SOCKET_TYPE_OPENING:
 			r = socket_try_open(sock, sm);

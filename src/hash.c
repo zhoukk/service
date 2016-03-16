@@ -18,7 +18,8 @@ struct hash {
 	struct hash_node *node;
 };
 
-static void _crypt_table_init(void) {
+static void
+_crypt_table_init(void) {
 	unsigned long seed = 0x00100001, idx1 = 0, idx2 = 0, i;
 	for (idx1 = 0; idx1 < 0x100; idx1++) {
 		for (idx2 = idx1, i = 0; i < 5; i++, idx2 += 0x100) {
@@ -32,7 +33,8 @@ static void _crypt_table_init(void) {
 	}
 }
 
-static unsigned long _hash_string(const char *key, int size, unsigned long type) {
+static unsigned long
+_hash_string(const char *key, int size, unsigned long type) {
 	unsigned long seed1 = 0x7FED7FED, seed2 = 0xEEEEEEEE;
 	int i = 0;
 	while (i < size) {
@@ -43,7 +45,8 @@ static unsigned long _hash_string(const char *key, int size, unsigned long type)
 	return seed1;
 }
 
-struct hash *hash_new(int cap) {
+struct hash *
+hash_new(int cap) {
 	struct hash *h;
 	int i;
 	h = malloc(sizeof(struct hash));
@@ -70,12 +73,14 @@ struct hash *hash_new(int cap) {
 	return h;
 }
 
-void hash_free(struct hash *h) {
+void
+hash_free(struct hash *h) {
 	free(h->node);
 	free(h);
 }
 
-int hash_insert(struct hash *h, const char *key, int size) {
+int
+hash_insert(struct hash *h, const char *key, int size) {
 	unsigned long hash = _hash_string(key, size, HASH_OFF);
 	unsigned long hasha = _hash_string(key, size, HASH_A);
 	unsigned long hashb = _hash_string(key, size, HASH_B);
@@ -97,7 +102,8 @@ int hash_insert(struct hash *h, const char *key, int size) {
 	return npos;
 }
 
-int hash_exist(struct hash *h, const char *key, int size) {
+int
+hash_exist(struct hash *h, const char *key, int size) {
 	unsigned long hash = _hash_string(key, size, HASH_OFF);
 	unsigned long hasha = _hash_string(key, size, HASH_A);
 	unsigned long hashb = _hash_string(key, size, HASH_B);
@@ -116,17 +122,20 @@ int hash_exist(struct hash *h, const char *key, int size) {
 	return -1;
 }
 
-void hash_remove(struct hash *h, int pos) {
+void
+hash_remove(struct hash *h, int pos) {
 	h->node[pos].exist = 0;
 	h->node[pos].hasha = -1;
 	h->node[pos].hashb = -1;
 	--h->size;
 }
 
-int hash_size(struct hash *h) {
+int
+hash_size(struct hash *h) {
 	return h->size;
 }
 
-int hash_cap(struct hash *h) {
+int
+hash_cap(struct hash *h) {
 	return h->mask + 1;
 }

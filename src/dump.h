@@ -6,7 +6,8 @@
 
 #define LINE_SIZE 0x10
 
-static inline void dump_line(int line, const unsigned char *data, int size, void(*print)(void *, const char *), void *ud) {
+static inline void
+dump_line(int line, const unsigned char *data, int size, void(*print)(void *, const char *), void *ud) {
 	int i;
 	char tmp[256];
 	int idx = sprintf(tmp,"%08x: ", line*LINE_SIZE);
@@ -38,7 +39,8 @@ static inline void dump_line(int line, const unsigned char *data, int size, void
 	print(ud, tmp);
 }
 
-static inline void dump(const unsigned char *data, int size, void(*print)(void *, const char *), void *ud) {
+static inline void
+dump(const unsigned char *data, int size, void(*print)(void *, const char *), void *ud) {
 	int i;
 	int line = size/LINE_SIZE;
 	for (i=0; i<line; ++i)
